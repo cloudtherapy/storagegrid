@@ -1,56 +1,178 @@
-# StorageGRID Avahi Fix
+# 🛠️ StorageGRID Avahi Daemon Management (v4.3)
 
-This repository contains `sg-avahi-fix.sh`, a utility to connect to StorageGRID VMs over SSH (port 8022 by default), enter their `storagegrid-<VM>` container, and ensure `avahi-daemon` is running in a robust, idempotent way.
+A robust utility script (`sg-avahi-fix.sh`) designed to manage and ensure the `avahi-daemon` service is running within StorageGRID VMs. The script connects to VMs via SSH, enters the `storagegrid-<VM>` container, and handles the avahi-daemon service in a secure and idempotent manner.
 
-## Features
-- Connects as `admin` (default) and escalates with `sudo` to run inside the container as root.
-- Supports key-based SSH or password-based SSH (uses `sshpass` for non-interactive runs).
-- Prompts once for the admin password, stores it temporarily in a secure temp file during the run, and deletes it on exit.
-- Avoids calling systemd wrappers inside containers that can fail (e.g. `detect-user-login.py` errors).
-- Dry-run mode to preview actions without making changes.
+> **Note:** This is version 4.3 of the script, which includes WSL compatibility and improved error handling.
 
-## Usage
+## ✨ Features
 
-Basic:
+- 🔒 Secure authentication with multiple methods (SSH keys, keyring, GPG-encrypted files)
+- 🔄 Idempotent operations - safe to run multiple times
+- 🔍 Dry-run mode for previewing changes
+- ⚡ Parallel execution for non-admin nodes
+- 📝 Comprehensive logging
+- 🔄 Automatic cleanup of temporary credentials
+- 🛡️ Avoids problematic systemd wrappers in containers
 
+## 🚀 Quick Start
+
+1. Create a `servers.txt` file with your StorageGRID nodes (tab or space separated):
+   ```
+   # Name          IPAddress
+   vm-sg-admin1    192.168.1.10
+   vm-sg-storage1  192.168.1.11
+   ```
+
+2. Make the script executable:
+   ```bash
+   chmod +x sg-avahi-fix.sh
+   ```
+
+3. Run the script (you'll be prompted for the admin password):
+   ```bash
+   ./sg-avahi-fix.sh -s servers.txt
+   ```
+   
+   Or set the password as an environment variable:
+   ```bash
+   SG_ADMIN_PASSWORD='your-password' ./sg-avahi-fix.sh -s servers.txt
+   ```
+
+4. For a dry run (no changes made):
+   ```bash
+   ./sg-avahi-fix.sh -s servers.txt --dry-run
+   ```
+
+## 📋 Prerequisites
+
+- Bash 4.0+
+- SSH client
+- `sshpass` (for password-based authentication)
+- `awk` (text processing)
+- `sudo` or `su` access on target systems
+- StorageGRID admin credentials
+
+## 🛠️ Usage
+
+### Basic Usage
 ```bash
-./sg-avahi-fix.sh
+./sg-avahi-fix.sh [options]
 ```
 
-Options:
+### Common Options
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-s, --servers FILE` | Path to servers list file | Required |
+| `-u, --user NAME` | SSH username | `admin` |
+| `-p, --port N` | SSH port | `8022` |
+| `--dry-run` | Preview actions without making changes | `false` |
+| `--debug` | Enable debug output | `false` |
+| `-h, --help` | Show help message | - |
 
-- `--servers FILE`    Path to `servers.txt` (default: `./servers.txt`).
-- `--port N`          SSH port (default: 8022).
-- `--user NAME`       SSH username (default: `admin`).
-- `--key PATH`        SSH private key to use (optional).
-- `--dry-run`         Show actions but do not execute.
-- `--no-keyring`      Do not use Linux keyring (secret-tool).
-- `--gpg-file PATH`   Path to GPG-encrypted admin password file (default: `~/.netapp-sg/admin.pass.gpg`).
-- `--store-pass`      Store/update admin password securely (keyring or GPG) and exit.
-- `--parallel`        Process non-admin nodes in parallel (admins still first).
-- `--log FILE`        Log file (default: `./sg-avahi-fix.log`).
-- `-h, --help`        Show help.
+### Environment Variables
+| Variable | Description |
+|----------|-------------|
+| `SG_ADMIN_PASSWORD` | Admin SSH password (if not set, you'll be prompted) |
 
-Notes:
-- Expects `servers.txt` with two columns: Name and IPAddress (headers allowed). Lines not matching `vm-sg-` nodes are ignored.
-- If password-based SSH is required, `sshpass` must be installed for non-interactive runs.
+### Authentication Methods
+1. **Password Authentication (Default)**
+   - The script will prompt for the password if `SG_ADMIN_PASSWORD` is not set
+   - Example:
+     ```bash
+     export SG_ADMIN_PASSWORD='your-password'
+     ./sg-avahi-fix.sh -s servers.txt
+     ```
 
-## Password handling
-- The script will attempt to obtain the admin password in this order:
-  1. `ADMIN_PASS` environment variable (discouraged).
-  2. Linux keyring (via `secret-tool`).
-  3. GPG-encrypted file (`~/.netapp-sg/admin.pass.gpg`).
-  4. Prompt once at runtime (no echo).
-- When prompting, the password is stored temporarily in a secure file (`mktemp`) with `chmod 600` for the duration of the run and removed on exit. The password is not printed to stdout.
-- You can store the password permanently using `--store-pass` which will save to keyring (preferred) or GPG.
+2. **SSH Key Authentication**
+   - Set up SSH keys for password-less authentication
+   - The script will use your default SSH key (~/.ssh/id_rsa) if available
 
-## Troubleshooting
-- If you see errors like `/sbin/detect-user-login.py failed: exit code 1`, the container image may not have a full systemd environment; the script avoids calling `systemctl` directly and prefers `/etc/init.d` or `runit` when available.
-- If `gpg --pinentry-mode loopback` fails, add `allow-loopback-pinentry` to `~/.gnupg/gpg-agent.conf` and run `gpgconf --kill gpg-agent`.
-- To run against a single host for testing, temporarily edit `servers.txt` to only contain that host, or run with `--dry-run` first.
+## 🔒 Security
 
-## Safety
-- The script attempts to securely wipe the temporary password file using `shred` if available, or truncates+deletes otherwise. If the script is killed with SIGKILL the cleanup trap won't run; consider running from a secure environment or using key-based auth.
+### Credential Handling
+- Passwords are never logged or displayed
+- Passwords are passed securely to sshpass
+- The script uses `-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null` for SSH to avoid host key verification prompts
+- For production use, consider setting up SSH keys for password-less authentication
 
-## License
-MIT
+### Best Practices
+- Always use SSH keys when possible
+- Store passwords using `--store-pass` instead of environment variables
+- Run with `--dry-run` first to verify actions
+- Review the log file after each run
+
+## 🐛 Troubleshooting
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+#### SSH Connection Failed
+- Verify network connectivity to the StorageGRID nodes
+- Check if SSH port (default: 8022) is open
+- Ensure the admin user has sudo privileges
+- Check that the server names in servers.txt match the VM hostnames
+
+#### Password Authentication
+```
+Error: sshpass is required for non-interactive password authentication
+```
+Install sshpass:
+```bash
+# Ubuntu/Debian
+sudo apt-get install sshpass
+
+# RHEL/CentOS
+sudo yum install sshpass
+
+# macOS (using Homebrew)
+brew install hudochenkov/sshpass/sshpass
+```
+
+#### Container Not Found
+If you see errors about the container not being found:
+- The script looks for containers starting with `storagegrid-`
+- Ensure your VM hostnames in servers.txt match the container naming convention
+- The script will try to find a container if an exact match isn't found
+
+#### Service Management
+If the script fails to start avahi-daemon, it tries multiple methods:
+1. `service avahi-daemon start`
+2. `systemctl start avahi-daemon`
+3. `sv start avahi-daemon`
+
+If all fail, check the container's service management system.
+
+#### GPG Pinentry Issues
+If you see:
+```
+gpg: public key decryption failed: Inappropriate ioctl for device
+gpg: decryption failed: No secret key
+```
+Add to `~/.gnupg/gpg-agent.conf`:
+```
+allow-loopback-pinentry
+```
+Then restart the agent:
+```bash
+gpgconf --kill gpg-agent
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Thanks to all contributors who have helped improve this tool
+- Special thanks to the open-source community for valuable resources
